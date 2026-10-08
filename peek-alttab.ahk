@@ -2,7 +2,7 @@
 #SingleInstance Force
 ;@Ahk2Exe-SetName peek-alttab
 ;@Ahk2Exe-SetDescription Frosted-glass Alt+Tab switcher
-;@Ahk2Exe-SetVersion 1.1.0
+;@Ahk2Exe-SetVersion 1.1.1
 ;@Ahk2Exe-SetCopyright MIT`, tingwei
 ;@Ahk2Exe-SetMainIcon assets\peek-alttab.ico
 ; Alt+Tab limited to the focused monitor. Windows cloaks windows on other virtual desktops, and
