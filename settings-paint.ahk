@@ -4,7 +4,7 @@
 
 ; ----- Fonts and text -----
 
-PanelMakeFont(pt, weight := 400, face := "") => DllCall("CreateFontW", "int", -Round(pt * A_ScreenDPI / 72), "int", 0
+PanelMakeFont(pt, weight := 400, face := "") => DllCall("CreateFontW", "int", -Dpx(pt * 96 / 72), "int", 0
     , "int", 0, "int", 0, "int", weight, "uint", 0, "uint", 0, "uint", 0, "uint", 1, "uint", 0, "uint", 0
     , "uint", 5, "uint", 0, "str", face = "" ? LOOK.face : face, "ptr")   ; DEFAULT_CHARSET, CLEARTYPE_QUALITY
 

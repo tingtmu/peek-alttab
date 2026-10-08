@@ -25,7 +25,7 @@ else if FileExist(AppDir() "assets\peek-alttab.ico")  ; the exe carries the icon
     TraySetIcon AppDir() "assets\peek-alttab.ico"
 DesktopIconStart()                                    ; check mark, "/settings", the exe's first-run question
 
-Dpx(v) => Round(v * A_ScreenDPI / 96)                 ; 96-dpi layout units -> pixels
+Dpx(v) => Round(v * pnl.scale)                        ; panel layout units -> pixels, fitted to the work area
 
 SettingsOpen(*) {
     global pnl
@@ -36,14 +36,10 @@ SettingsOpen(*) {
     PendingClear()                                    ; leftovers of a crash
     peek := SettingsHas("PEEK_MIN")
     pnl := {tok: tok, el: Map(), cards: [], frames: [], labels: [], hover: 0, side: 0, drag: 0, dirty: false
-        , note: PanelIssues()
+        , note: PanelIssues(), scale: A_ScreenDPI / 96, work: PanelWorkArea()
         , some: SOME_FROM, many: MANY_FROM, face: FONT_NAME, size: FONT_SIZE
         , peek: peek ? [Round(SettingsGet("PEEK_MIN") * 100), Round(SettingsGet("PEEK_MAX") * 100)] : 0}
-    pnl.gui := g := Gui("-MinimizeBox -MaximizeBox -DPIScale", "peek-alttab settings")
-    g.BackColor := LOOK.bg, g.MarginX := 0, g.MarginY := 0
-    g.SetFont("s10 c" LOOK.text, LOOK.face)
-    PanelFonts()
-    h := PanelLayout(w := Dpx(624))
+    g := PanelBuild(&w, &h)
     for i in [1, 2, 3]
         PanelLoadCard(i)
     PanelSurface(w, h)
@@ -53,6 +49,34 @@ SettingsOpen(*) {
         DllCall("dwmapi\DwmSetWindowAttribute", "ptr", g.Hwnd, "uint", a, "uint*", v, "uint", 4)   ; ivory caption, title
     PanelShow(w, h)
     PanelFontList()
+}
+
+PanelWorkArea() {   ; capture the target monitor before creating the hidden panel
+    mi := Buffer(40, 0), NumPut("uint", 40, mi)
+    if !DllCall("GetMonitorInfoW", "ptr", CurrentMonitor(), "ptr", mi)
+        throw OSError()
+    l := NumGet(mi, 20, "int"), t := NumGet(mi, 24, "int")
+    return {l: l, t: t, w: NumGet(mi, 28, "int") - l, h: NumGet(mi, 32, "int") - t}
+}
+
+PanelBuild(&w, &h) {   ; measure the full window, then rebuild smaller only when it cannot fit
+    loop {
+        pnl.gui := g := Gui("-MinimizeBox -MaximizeBox -DPIScale", "peek-alttab settings")
+        g.BackColor := LOOK.bg, g.MarginX := 0, g.MarginY := 0
+        g.SetFont("s" (10 * pnl.scale * 96 / A_ScreenDPI) " c" LOOK.text, LOOK.face)
+        PanelFonts()
+        h := PanelLayout(w := Dpx(624))
+        g.Show("Hide w" w " h" h), g.GetPos(, , &ww, &wh), g.GetClientPos(, , &cw, &ch)
+        margin := Dpx(12), area := pnl.work
+        fit := Min(1, (area.w - (ww - cw) - 2 * margin) / w, (area.h - (wh - ch) - 2 * margin) / h)
+        if fit >= 1
+            return g
+        g.Destroy()
+        for k, f in pnl.f
+            DllCall("DeleteObject", "ptr", f)
+        pnl.scale *= fit * 0.995                      ; leave room for font/control rounding
+        pnl.el := Map(), pnl.cards := [], pnl.frames := [], pnl.labels := []
+    }
 }
 
 ; Cards (few / some / many) with their range steppers, the peek scenes and sliders, the font row, the buttons.
@@ -122,11 +146,9 @@ PanelIssues() {   ; what settings.ini had wrong at startup, for the hint line ("
 }
 
 PanelShow(w, h) {   ; centred on the active window's monitor (or the cursor's)
-    g := pnl.gui
+    g := pnl.gui, area := pnl.work
     g.Show("Hide w" w " h" h), g.GetPos(, , &ww, &wh)
-    mi := Buffer(40, 0), NumPut("uint", 40, mi), DllCall("GetMonitorInfoW", "ptr", CurrentMonitor(), "ptr", mi)
-    l := NumGet(mi, 20, "int"), t := NumGet(mi, 24, "int"), r := NumGet(mi, 28, "int"), b := NumGet(mi, 32, "int")
-    g.Show("x" (l + (r - l - ww) // 2) " y" (t + (b - t - wh) // 2))
+    g.Show("x" (area.l + (area.w - ww) // 2) " y" (area.t + (area.h - wh) // 2))
 }
 
 PanelFontList() {
