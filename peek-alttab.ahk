@@ -2,12 +2,15 @@
 #SingleInstance Force
 ;@Ahk2Exe-SetName peek-alttab
 ;@Ahk2Exe-SetDescription Frosted-glass Alt+Tab switcher
-;@Ahk2Exe-SetVersion 1.1.1
+;@Ahk2Exe-SetVersion 1.1.2
 ;@Ahk2Exe-SetCopyright MIT`, tingwei
 ;@Ahk2Exe-SetMainIcon assets\peek-alttab.ico
 ; Alt+Tab limited to the focused monitor. Windows cloaks windows on other virtual desktops, and
 ; tiling WMs like GlazeWM cloak hidden workspaces, so this == "current desktop / workspace".
 ; Hold Alt, press Tab / Shift+Tab to move, release Alt to switch, Esc to cancel.
+
+; ===== Panel opacity: edit here, then right-click tray icon > Reload Script. =====
+PANE_A     := 240     ; background pane only: 0 = transparent, 255 = opaque; list stays opaque
 
 ; ===== Settings: built-in defaults. Tray icon > Settings… saves overrides to settings.ini, which wins. =====
 ; (Or edit these, then right-click tray icon > Reload Script.)
@@ -28,7 +31,7 @@ WM_PROCESS := ""      ; optional: script exits when this process is gone, e.g. "
 SettingsLoad()        ; settings.ini overrides (validated; see settings-panel.ahk)
 ; ==========================================================================
 
-; ===== Glass look (opaque frosted pane lit from the bottom-left; colours RRGGBB, alphas 0-255) =====
+; ===== Glass look (translucent frosted pane lit from the bottom-left; colours RRGGBB, alphas 0-255) =====
 BASE_TOP    := "FCF9F4", BASE_MID := "FAF6EF", BASE_BOT := "F4ECDE"   ; vertical base gradient
 BORDER      := "D9CBB4"                 ; DWM 1px outer border
 LIGHT_ANGLE := 315                      ; GDI+ degrees clockwise from +x: 315 = bottom-left -> top-right
@@ -93,7 +96,13 @@ if PANE_PAD_Y
 DllCall("dwmapi\DwmSetWindowAttribute", "ptr", g.Hwnd, "uint", 33, "int*", 2, "uint", 4)               ; Win11 rounded corners
 DllCall("dwmapi\DwmSetWindowAttribute", "ptr", g.Hwnd, "uint", 34, "uint*", Bgr(BORDER), "uint", 4)    ; DWMWA_BORDER_COLOR
 g.SetFont("s" FONT_SIZE " c" TEXT_RGB, FONT_NAME)
-global lb := g.AddListBox("w" LIST_WIDTH " r10 Background" LIST_BG " 0x50 -E0x200")   ; owner-drawn (DrawItem), no edge
+global listSlot := g.AddText("w" LIST_WIDTH " h1 BackgroundTrans")   ; reserves the opaque list's place in the pane
+global listGui := Gui("+Owner" g.Hwnd " -Caption +ToolWindow -DPIScale +E0x08000000")   ; independent opacity; never activated
+listGui.BackColor := LIST_BG
+listGui.MarginX := 0, listGui.MarginY := 0
+listGui.SetFont("s" FONT_SIZE " c" TEXT_RGB, FONT_NAME)
+global lb := listGui.AddListBox("x0 y0 w" LIST_WIDTH " r10 Background" LIST_BG " 0x50 -E0x200")   ; owner-drawn (DrawItem), no edge
+global listX := 0, listY := 0          ; list's screen position before the pane's rise offset
 OnMessage(0x2B, DrawItem)            ; WM_DRAWITEM
 OnMessage(0x14, EraseBg)             ; WM_ERASEBKGND: paint the cached glass
 pw := Min(PREVIEW_W, A_ScreenWidth - LIST_WIDTH - 60)    ; must fit beside the list
@@ -183,7 +192,7 @@ Finish(activate) {
     SetTimer WatchAlt, 0
     UpdatePreview()
     SetTimer(PeekStep, 0), SetTimer(InhaleStep, 0), SetTimer(GlideStep, 0)   ; nothing runs while hidden
-    peek.Hide(), shade.Hide(), g.Hide()
+    listGui.Hide(), peek.Hide(), shade.Hide(), g.Hide()
     cycling := false
     if activate && idx >= 1 && idx <= wins.Length && WinExist(wins[idx])
         WinActivate(wins[idx])
@@ -294,13 +303,14 @@ ShowList(warm := false) {   ; warm: stop once the glass and shadow are rendered 
     itemH := SendMessage(0x1A1, 0, 0, lb)   ; LB_GETITEMHEIGHT
     lb.Move(, , , Min(wins.Length, MAX_ROWS) * itemH + 4)   ; fit rows (+ border)
     lb.GetPos(, , &lw, &lh)                  ; round the card; the system owns (and frees) the region
-    DllCall("SetWindowRgn", "ptr", lb.Hwnd, "ptr", DllCall("CreateRoundRectRgn", "int", 0, "int", 0
+    listSlot.Move(, , lw, lh)                ; keep the pane layout aligned with the separate list window
+    DllCall("SetWindowRgn", "ptr", listGui.Hwnd, "ptr", DllCall("CreateRoundRectRgn", "int", 0, "int", 0
         , "int", lw + 1, "int", lh + 1, "int", CARD_R, "int", CARD_R, "ptr"), "int", true)
     moodNote.Visible := false        ; hidden controls don't count for AutoSize
     wasShown := DllCall("IsWindowVisible", "ptr", g.Hwnd)
     SetTimer GlideStep, 0
     global pillRow := wasShown ? idx : 0   ; fresh rows: the first Select snaps; re-show: pill stays put, no blank frame
-    g.Show("Hide AutoSize")
+    listGui.Hide(), g.Show("Hide AutoSize")
     g.GetClientPos(, , &cw, &ch)
     n := wins.Length, k := MoodOf(n)  ; few / some / many
     moodNote.Text := n " window" (n = 1 ? "" : "s") " · " MOOD_NOTES[k]
@@ -316,6 +326,7 @@ ShowList(warm := false) {   ; warm: stop once the glass and shadow are rendered 
     r := NumGet(mi, 28, "int"), b := NumGet(mi, 32, "int")
     InhaleStart(!wasShown, x := l + (r - l - w) // 2, y := t + (b - t - h) // 2)   ; sets alpha before the Show
     g.Show("NA x" x " y" (y + paneDY))
+    ShowListCard()                   ; opaque, owned by the pane so it stays above the background
     DllCall("RedrawWindow", "ptr", g.Hwnd, "ptr", 0, "ptr", 0, "uint", 0x185)   ; INVALIDATE|ERASE|ALLCHILDREN|UPDATENOW
     ShowShadow(w, h)                 ; before the image, so the stack ends up pane > image > shadow
     ShowPeek(imgs[k], PeekShare(n), !wasShown, spans[k])

@@ -178,6 +178,7 @@ The block at the top of each script holds the built-in defaults. `settings.ini` 
 | `LIST_WIDTH` | `700` | both | ini | List width in pixels. |
 | `MAX_ROWS` | `15` | both | ini | Longer lists scroll. |
 | `PREVIEW_W` | `800` | both | ini | Live preview width in pixels, to the right of the list. `0` turns the preview off. Capped so it fits on screen. |
+| `PANE_A` | `240` | peek | script | Background pane alpha, near the top of `peek-alttab.ahk`: `0` is transparent, `255` is opaque. The list box and its text stay fully opaque. |
 | `IMG_SIZE` | `250` / `100` | peek / elegant | ini | Image size in pixels. |
 | `IMG_ROWS` | `12` | elegant | ini | The pane is tall enough that the list only covers the image beyond this many windows. |
 | `SEPARATOR` | `"   —   "` | both | script | Text between a window's title and its process name. |

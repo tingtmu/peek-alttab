@@ -10,12 +10,12 @@ if A_LineFile = A_ScriptFullPath {
 
 ; ----- Pane animation: inhale on open, selection pill glide (ticks only move, fade or repaint rows) -----
 
-; Fresh open: start faint (INHALE_A0) and INHALE_RISE px low, then InhaleStep eases in. Else opaque, in place.
+; Fresh open: start faint (INHALE_A0) and INHALE_RISE px low, then InhaleStep eases in. Else settled, in place.
 InhaleStart(fresh, x, y) {
     global paneA, paneDY, inhaleX := x, inhaleY := y, inhaleT := A_TickCount
     on := fresh && INHALE_MS > 0
     paneA := on ? INHALE_A0 : 255, paneDY := on ? INHALE_RISE : 0
-    DllCall("SetLayeredWindowAttributes", "ptr", g.Hwnd, "uint", 0, "uchar", paneA, "uint", 2)   ; LWA_ALPHA
+    DllCall("SetLayeredWindowAttributes", "ptr", g.Hwnd, "uint", 0, "uchar", Round(paneA * PANE_A / 255), "uint", 2)   ; LWA_ALPHA
     SetTimer InhaleStep, on ? ANIM_TICK : 0
 }
 
@@ -23,9 +23,11 @@ InhaleStep() {   ; one frame: pane and shadow alpha + the rise (the DWM thumbnai
     global paneA, paneDY
     p := Min((A_TickCount - inhaleT) / INHALE_MS, 1), e := 1 - (1 - p) ** 3   ; ease-out cubic
     paneA := Round(INHALE_A0 + (255 - INHALE_A0) * e), paneDY := Round(INHALE_RISE * (1 - e))
-    DllCall("SetLayeredWindowAttributes", "ptr", g.Hwnd, "uint", 0, "uchar", paneA, "uint", 2)
+    DllCall("SetLayeredWindowAttributes", "ptr", g.Hwnd, "uint", 0, "uchar", Round(paneA * PANE_A / 255), "uint", 2)
     DllCall("SetWindowPos", "ptr", g.Hwnd, "ptr", 0, "int", inhaleX, "int", inhaleY + paneDY, "int", 0, "int", 0
         , "uint", 0x15)                                             ; NOSIZE|NOZORDER|NOACTIVATE
+    DllCall("SetWindowPos", "ptr", listGui.Hwnd, "ptr", 0, "int", listX, "int", listY + paneDY, "int", 0, "int", 0
+        , "uint", 0x15)                                             ; opaque list follows the pane's rise
     if SHADOW_A > 0
         Fade(shade, inhaleX - SHADOW_BLUR + SHADOW_DX, inhaleY + paneDY - SHADOW_BLUR + SHADOW_DY)
     if p < 1
@@ -39,6 +41,14 @@ InhaleStep() {   ; one frame: pane and shadow alpha + the rise (the DWM thumbnai
 Fade(win, x := "", y := "") {
     DllCall("UpdateLayeredWindow", "ptr", win.Hwnd, "ptr", 0, x = "" ? "ptr" : "int64*", x = "" ? 0 : (y << 32) | (x & 0xFFFFFFFF)
         , "ptr", 0, "ptr", 0, "ptr", 0, "uint", 0, "uint*", 0x01000000 | paneA << 16, "uint", 2)   ; src-alpha blend, ULW_ALPHA
+}
+
+; Show the fully opaque list at its reserved client position; ownership keeps it above the translucent pane.
+ShowListCard() {
+    global listX, listY
+    g.GetClientPos(&x, &y), listSlot.GetPos(&lx, &ly, &w, &h)
+    listX := x + lx, listY := y + ly - paneDY
+    listGui.Show("NA x" listX " y" (listY + paneDY) " w" w " h" h)
 }
 
 ; Highlight row i now; the pill then glides there from a nearby visible row (cosmetic only) or snaps.
@@ -102,7 +112,7 @@ SetAccent(hwnd) {   ; tint the well for hwnd's app; repaints only that part of t
     accentRgb := AccentOf(hwnd)
     if !GlassAccent(accentRgb)
         return
-    AccentRect(&x, &y, &w, &h), lb.GetPos(&lx, &ly, &lw, &lh)   ; repaint the pane but not the list, which hides the glass anyway
+    AccentRect(&x, &y, &w, &h), listSlot.GetPos(&lx, &ly, &lw, &lh)   ; repaint the pane but not the list, which hides the glass anyway
     rgn := DllCall("CreateRectRgn", "int", x, "int", y, "int", x + w, "int", y + h, "ptr")
     lr := DllCall("CreateRectRgn", "int", lx, "int", ly, "int", lx + lw, "int", ly + lh, "ptr")
     DllCall("CombineRgn", "ptr", rgn, "ptr", rgn, "ptr", lr, "int", 4)   ; RGN_DIFF
@@ -378,7 +388,7 @@ PaintInsets(gr) {
         DllCall("gdiplus\GdipDeleteBrush", "ptr", br), DllCall("gdiplus\GdipDeletePath", "ptr", path)
         Stroke(gr, x + 0.5, y + 0.5, w - 1, h - 1, WELL_R, 1, Lip(WELL_LIP_A, BORDER, WELL_LINE_A), LIGHT_ANGLE)
     }
-    lb.GetPos(&x, &y, &w, &h)
+    listSlot.GetPos(&x, &y, &w, &h)
     Stroke(gr, x - 0.5, y - 0.5, w + 1, h + 1, CARD_R / 2 + 0.5, 1, Lip(CARD_LIP_A, CARD_LINE, CARD_LINE_A), LIGHT_ANGLE)
 }
 
