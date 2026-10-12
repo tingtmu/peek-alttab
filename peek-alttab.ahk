@@ -2,7 +2,7 @@
 #SingleInstance Force
 ;@Ahk2Exe-SetName peek-alttab
 ;@Ahk2Exe-SetDescription Frosted-glass Alt+Tab switcher
-;@Ahk2Exe-SetVersion 1.1.2
+;@Ahk2Exe-SetVersion 1.1.3
 ;@Ahk2Exe-SetCopyright MIT`, tingwei
 ;@Ahk2Exe-SetMainIcon assets\peek-alttab.ico
 ; Alt+Tab limited to the focused monitor. Windows cloaks windows on other virtual desktops, and
@@ -10,7 +10,7 @@
 ; Hold Alt, press Tab / Shift+Tab to move, release Alt to switch, Esc to cancel.
 
 ; ===== Panel opacity: edit here, then right-click tray icon > Reload Script. =====
-PANE_A     := 240     ; background pane only: 0 = transparent, 255 = opaque; list stays opaque
+PANE_A     := 240     ; background pane only: 0 = transparent, 255 = opaque; list and thumbnail stay opaque
 
 ; ===== Settings: built-in defaults. Tray icon > Settings… saves overrides to settings.ini, which wins. =====
 ; (Or edit these, then right-click tray icon > Reload Script.)
@@ -107,6 +107,10 @@ OnMessage(0x2B, DrawItem)            ; WM_DRAWITEM
 OnMessage(0x14, EraseBg)             ; WM_ERASEBKGND: paint the cached glass
 pw := Min(PREVIEW_W, A_ScreenWidth - LIST_WIDTH - 60)    ; must fit beside the list
 global pv := pw > 0 ? g.AddText("x+" (PANE_GAP || 10) " yp w" pw " h" pw * 10 // 16 " BackgroundTrans") : 0   ; 16:10 thumbnail area
+global previewGui := Gui("+Owner" g.Hwnd " -Caption +ToolWindow -DPIScale +E0x08000000")   ; opaque DWM destination, independent of pane alpha
+previewGui.BackColor := "000000"
+previewGui.MarginX := 0, previewGui.MarginY := 0
+global previewX := 0, previewY := 0   ; fitted thumbnail's screen position before the pane's rise offset
 global thumb := 0                   ; DWM thumbnail handle of the highlighted window (0 = none)
 g.AddText("xm ym Hidden", "Ag").GetPos(, , , &textH)   ; measure a line of the list font
 SendMessage(0x1A0, 0, textH + ROW_PAD, lb)             ; LB_SETITEMHEIGHT: owner-draw needs it set
@@ -226,12 +230,13 @@ CloseSelected() {
 
 ; Show a live DWM thumbnail of src in the preview area, tinting the well for its app; no src just drops the old one.
 UpdatePreview(src := 0) {
-    global thumb
+    global thumb, previewX, previewY
+    previewGui.Hide()
     if thumb
         DllCall("dwmapi\DwmUnregisterThumbnail", "ptr", thumb), thumb := 0
     if src
         SetAccent(src)
-    if !pv || !src || DllCall("dwmapi\DwmRegisterThumbnail", "ptr", g.Hwnd, "ptr", src, "ptr*", &thumb)
+    if !pv || !src || DllCall("dwmapi\DwmRegisterThumbnail", "ptr", previewGui.Hwnd, "ptr", src, "ptr*", &thumb)
         return thumb := 0           ; failed (HRESULT != 0): leave the area empty
     sz := 0
     DllCall("dwmapi\DwmQueryThumbnailSourceSize", "ptr", thumb, "int64*", &sz)
@@ -239,12 +244,20 @@ UpdatePreview(src := 0) {
     pv.GetPos(&x, &y, &w, &h)
     s := sw && sh ? Min(w / sw, h / sh, 1) : 0   ; keep aspect, never upscale
     tw := Round(sw * s), th := Round(sh * s)
+    if tw <= 0 || th <= 0
+        return UpdatePreview()     ; unavailable source: don't leave an empty opaque window
     x += (w - tw) // 2, y += (h - th) // 2
     p := Buffer(48, 0)              ; DWM_THUMBNAIL_PROPERTIES
     NumPut("uint", 0xD, p, 0)       ; RECTDESTINATION | OPACITY | VISIBLE
-    NumPut("int", x, "int", y, "int", x + tw, "int", y + th, p, 4)
-    NumPut("uchar", 255, p, 36), NumPut("int", 1, p, 40)    ; DWM fades it with the pane's layered alpha
-    DllCall("dwmapi\DwmUpdateThumbnailProperties", "ptr", thumb, "ptr", p)
+    NumPut("int", 0, "int", 0, "int", tw, "int", th, p, 4)
+    NumPut("uchar", 255, p, 36), NumPut("int", 1, p, 40)    ; fully opaque, including while the pane fades
+    if hr := DllCall("dwmapi\DwmUpdateThumbnailProperties", "ptr", thumb, "ptr", p) {
+        OutputDebug "DWM thumbnail update failed for window " src ": " Format("0x{:08X}", hr & 0xFFFFFFFF)
+        return UpdatePreview()
+    }
+    g.GetClientPos(&gx, &gy)
+    previewX := gx + x, previewY := gy + y - paneDY
+    previewGui.Show("NA x" previewX " y" (previewY + paneDY) " w" tw " h" th)
 }
 
 ; Owner-drawn list row: selection is a rounded pale-blue pill, process name muted.
@@ -310,7 +323,7 @@ ShowList(warm := false) {   ; warm: stop once the glass and shadow are rendered 
     wasShown := DllCall("IsWindowVisible", "ptr", g.Hwnd)
     SetTimer GlideStep, 0
     global pillRow := wasShown ? idx : 0   ; fresh rows: the first Select snaps; re-show: pill stays put, no blank frame
-    listGui.Hide(), g.Show("Hide AutoSize")
+    previewGui.Hide(), listGui.Hide(), g.Show("Hide AutoSize")
     g.GetClientPos(, , &cw, &ch)
     n := wins.Length, k := MoodOf(n)  ; few / some / many
     moodNote.Text := n " window" (n = 1 ? "" : "s") " · " MOOD_NOTES[k]

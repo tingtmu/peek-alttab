@@ -19,7 +19,7 @@ InhaleStart(fresh, x, y) {
     SetTimer InhaleStep, on ? ANIM_TICK : 0
 }
 
-InhaleStep() {   ; one frame: pane and shadow alpha + the rise (the DWM thumbnail takes the pane's alpha)
+InhaleStep() {   ; one frame: pane and shadow alpha + the rise; list and thumbnail stay opaque
     global paneA, paneDY
     p := Min((A_TickCount - inhaleT) / INHALE_MS, 1), e := 1 - (1 - p) ** 3   ; ease-out cubic
     paneA := Round(INHALE_A0 + (255 - INHALE_A0) * e), paneDY := Round(INHALE_RISE * (1 - e))
@@ -28,6 +28,9 @@ InhaleStep() {   ; one frame: pane and shadow alpha + the rise (the DWM thumbnai
         , "uint", 0x15)                                             ; NOSIZE|NOZORDER|NOACTIVATE
     DllCall("SetWindowPos", "ptr", listGui.Hwnd, "ptr", 0, "int", listX, "int", listY + paneDY, "int", 0, "int", 0
         , "uint", 0x15)                                             ; opaque list follows the pane's rise
+    if thumb
+        DllCall("SetWindowPos", "ptr", previewGui.Hwnd, "ptr", 0, "int", previewX, "int", previewY + paneDY, "int", 0, "int", 0
+            , "uint", 0x15)                                         ; opaque thumbnail follows the same rise
     if SHADOW_A > 0
         Fade(shade, inhaleX - SHADOW_BLUR + SHADOW_DX, inhaleY + paneDY - SHADOW_BLUR + SHADOW_DY)
     if p < 1
